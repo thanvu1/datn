@@ -1,0 +1,452 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // url = env("DATABASE_URL")
+}
+
+/**
+ * =========================
+ * Enums
+ * =========================
+ */
+
+enum CompileStatus {
+  queued
+  running
+  success
+  failed
+}
+
+enum UserRole {
+  admin
+  student
+  teacher
+}
+
+enum ProjectRole {
+  editor
+  viewer
+}
+
+enum CompileMode {
+  export
+  preview
+}
+
+enum CompileEngine {
+  node
+  web
+}
+
+enum FileKind {
+  typst
+  bib
+  image
+  data
+  other
+}
+
+enum IdentityProvider {
+  local
+  ldap
+  google
+}
+
+/**
+ * =========================
+ * Users
+ * =========================
+ */
+
+model User {
+  id    String   @id @default(cuid())
+  email String   @unique
+  role  UserRole
+
+  // nullable for SSO-only accounts
+  passwordHash       String?
+  isActive           Boolean @default(true)
+  mustChangePassword Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ownedProjects        Project[]    @relation("ProjectOwner")
+  requestedCompileJobs CompileJob[] @relation("CompileJobRequestedBy")
+
+  memberships       ProjectMember[]
+  createdShareLinks ProjectShareLink[]
+  identities        UserIdentity[]
+
+  student Student?
+  teacher Teacher?
+
+  quota UserQuota?
+
+  invalidTokens InvalidToken[]
+}
+
+/**
+ * =========================
+ * Student / Teacher profiles
+ * =========================
+ */
+
+model Student {
+  userId String @id
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  studentCode String? @unique
+  fullName    String?
+  className   String?
+  faculty     String?
+  phone       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Teacher {
+  userId String @id
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  teacherCode String? @unique
+  fullName    String?
+  department  String?
+  phone       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  advising ProjectAdvisor[]
+}
+
+/**
+ * =========================
+ * SSO identities (LDAP/Google)
+ * =========================
+ */
+
+model UserIdentity {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  provider IdentityProvider
+  subject  String
+
+  issuer     String?
+  email      String?
+  rawProfile Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([provider, subject])
+  @@index([userId])
+}
+
+/**
+ * =========================
+ * Project
+ * =========================
+ */
+
+model Project {
+  id        String   @id @default(cuid())
+  title     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ownerId String?
+  owner   User?   @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+
+  lastEditedAt DateTime?
+
+  settings ProjectSettings?
+
+  members    ProjectMember[]
+  shareLinks ProjectShareLink[]
+  advisors   ProjectAdvisor[]
+
+  files            File[]
+  compileJobs      CompileJob[]
+  compileArtifacts CompileArtifact[]
+
+  snapshots          ProjectSnapshot[]
+  wordCountSnapshots ProjectWordCountSnapshot[]
+}
+
+/**
+ * =========================
+ * Project Settings
+ * =========================
+ */
+
+model ProjectSettings {
+  projectId String  @id
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  mainPath String @default("main.typ")
+
+  compileOptions Json?
+  zoteroConfig   Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/**
+ * =========================
+ * Project Membership
+ * =========================
+ */
+
+model ProjectMember {
+  id        String      @id @default(cuid())
+  projectId String
+  userId    String
+  role      ProjectRole @default(viewer)
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([projectId, userId])
+  @@index([projectId])
+  @@index([userId])
+}
+
+/**
+ * =========================
+ * Share link
+ * =========================
+ */
+
+model ProjectShareLink {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  token String      @unique
+  role  ProjectRole @default(viewer)
+
+  expiresAt DateTime?
+  maxUses   Int?
+  usedCount Int       @default(0)
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([projectId])
+  @@index([expiresAt])
+}
+
+/**
+ * =========================
+ * Teacher advising
+ * =========================
+ */
+
+model ProjectAdvisor {
+  id        String @id @default(cuid())
+  projectId String
+  teacherId String
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  teacher Teacher @relation(fields: [teacherId], references: [userId], onDelete: Cascade)
+
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@unique([projectId, teacherId])
+  @@index([teacherId])
+  @@index([projectId])
+}
+
+/**
+ * =========================
+ * Files
+ * =========================
+ */
+
+model File {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  path String
+  kind FileKind @default(other)
+
+  // preserve old DB column "content"
+  textContent String? @map("content") @db.Text
+
+  storageKey String?
+  mimeType   String?
+  sizeBytes  Int?
+  sha256     String?
+
+  lastEditedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, path])
+  @@index([projectId])
+}
+
+/**
+ * =========================
+ * Compile Jobs
+ * =========================
+ */
+
+model CompileJob {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  entryPath String
+  status    CompileStatus @default(queued)
+
+  mode   CompileMode   @default(export)
+  engine CompileEngine @default(node)
+
+  inputHash String?
+
+  // legacy - keep to avoid data loss
+  artifactPath String?
+  diagnostics  Json?
+
+  attempt  Int @default(0)
+  priority Int @default(0)
+
+  requestedById String?
+  requestedBy   User?   @relation("CompileJobRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
+
+  // job -> 0..1 latest artifact (1-1 optional)
+  latestArtifactId String?          @unique
+  latestArtifact   CompileArtifact? @relation("LatestArtifact", fields: [latestArtifactId], references: [id], onDelete: SetNull)
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  startedAt  DateTime?
+  finishedAt DateTime?
+
+  // job -> many artifacts (produced by job)
+  artifacts CompileArtifact[] @relation("JobArtifacts")
+
+  @@index([projectId])
+  @@index([status])
+  @@index([projectId, createdAt])
+  // queue optimization
+  @@index([status, priority, createdAt])
+}
+
+/**
+ * =========================
+ * Compile Artifacts
+ * =========================
+ */
+
+model CompileArtifact {
+  id        String  @id @default(cuid())
+  projectId String
+  jobId     String?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // produced-by relation (opposite of CompileJob.artifacts)
+  job CompileJob? @relation("JobArtifacts", fields: [jobId], references: [id], onDelete: SetNull)
+
+  // opposite of CompileJob.latestArtifact (0..1)
+  latestOfJob CompileJob? @relation("LatestArtifact")
+
+  format     String  @default("pdf")
+  storageKey String
+  sizeBytes  Int?
+  sha256     String?
+
+  createdAt DateTime @default(now())
+
+  @@index([projectId, createdAt])
+  @@index([jobId])
+}
+
+/**
+ * =========================
+ * Collaboration snapshots (MVP)
+ * =========================
+ */
+
+model ProjectSnapshot {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  state     Bytes
+  revision  String?
+  createdAt DateTime @default(now())
+
+  @@index([projectId, createdAt])
+}
+
+/**
+ * =========================
+ * Analytics: word count growth
+ * =========================
+ */
+
+model ProjectWordCountSnapshot {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  wordCount Int
+  charCount Int?
+  fileCount Int?
+
+  computedAt DateTime @default(now())
+
+  @@index([projectId, computedAt])
+}
+
+/**
+ * =========================
+ * Quota
+ * =========================
+ */
+
+model UserQuota {
+  userId String @id
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  limitBytes BigInt @default(2147483648)
+  usedBytes  BigInt @default(0)
+
+  updatedAt DateTime @updatedAt
+}
+
+/**
+ * =========================
+ * JWT blacklist
+ * =========================
+ */
+
+model InvalidToken {
+  jti    String  @id
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+  @@index([userId])
+}
