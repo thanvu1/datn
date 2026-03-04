@@ -1,7 +1,7 @@
 // src/modules/auth/infra/UserRepoPrisma.ts
 import type { PrismaClient } from "@prisma/client";
 import type { UserRepo, UserRecord } from "../domain/AuthPorts.js";
-import type { UserRole } from "../domain/UserRole.js";
+import type { UserRole } from "../../../shared/auth/UserRole.js";
 
 export function createUserRepoPrisma(prisma: PrismaClient): UserRepo {
     return {

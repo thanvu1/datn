@@ -1,5 +1,5 @@
 // src/modules/auth/domain/AuthPorts.ts
-import type { UserRole } from "./UserRole.js";
+import type { UserRole } from "../../../shared/auth/UserRole.js";
 
 export type UserRecord = {
     id: string;

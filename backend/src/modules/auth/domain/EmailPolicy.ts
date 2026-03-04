@@ -1,5 +1,5 @@
 // src/modules/auth/domain/EmailPolicy.ts
-import type { UserRole } from "./UserRole.js";
+import type { UserRole } from "../../../shared/auth/UserRole.js";
 
 export const studentEmailRe = /^\d{8,12}@e\.tlu\.edu\.vn$/i;
 export const teacherEmailRe = /^[a-z][a-z0-9._-]{2,40}@tlu\.edu\.vn$/i;
