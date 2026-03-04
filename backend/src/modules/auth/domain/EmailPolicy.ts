@@ -15,6 +15,11 @@ export function inferRoleFromEmail(email: string): Exclude<UserRole, "admin"> | 
     return null;
 }
 
+export function isEmailFormatValid(email: string, adminEmail: string) {
+    const normalizedEmail = normalizeEmail(email);
+    return studentEmailRe.test(normalizedEmail) || teacherEmailRe.test(normalizedEmail) || normalizedEmail === normalizeEmail(adminEmail);
+}
+
 export function isAllowedEmail(email: string, adminEmail: string) {
     const normalizedEmail = normalizeEmail(email);
     return inferRoleFromEmail(normalizedEmail) !== null || normalizedEmail === normalizeEmail(adminEmail);

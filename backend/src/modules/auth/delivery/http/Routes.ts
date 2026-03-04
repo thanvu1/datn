@@ -13,7 +13,28 @@ import { introspectUseCase } from "../../application/IntrospectUseCase.js";
 import { changePasswordUseCase } from "../../application/ChangePasswordUseCase.js";
 import { logoutUseCase } from "../../application/LogoutUseCase.js";
 import { AuthError } from "../../domain/AuthErrors.js";
+import type { AuthErrorReason } from "../../domain/AuthErrors.js";
 
+type AuthFailStatus = 400 | 401 | 403 | 404;
+
+function mapAuthFail(reason: AuthErrorReason): { status: AuthFailStatus; message: string } {
+    switch (reason) {
+        case AuthError.InvalidEmailFormat:
+            return { status: 400, message: "Email sai định dạng." };
+        case AuthError.EmailNotAllowed:
+            return { status: 403, message: "Email không được phép đăng nhập hệ thống." };
+        case AuthError.UserNotFound:
+            return { status: 404, message: "Email không tồn tại trong hệ thống." };
+        case AuthError.UserInactive:
+            return { status: 403, message: "Tài khoản đã bị vô hiệu hóa." };
+        case AuthError.WrongPassword:
+            return { status: 401, message: "Mật khẩu không đúng." };
+        case AuthError.InvalidToken:
+            return { status: 401, message: "Token không hợp lệ." };
+        default:
+            return { status: 400, message: "Yêu cầu không hợp lệ." };
+    }
+}
 export async function authRoutes(app: FastifyInstance) {
     const deps = createAuthContainer(app);
 
@@ -48,13 +69,8 @@ export async function authRoutes(app: FastifyInstance) {
             );
 
             if (!result.ok) {
-                const status =
-                    result.reason === AuthError.InvalidCredentials ? 401 :
-                        result.reason === AuthError.UserInactive ? 403 :
-                            result.reason === AuthError.UserNotFound ? 404 :
-                                400;
-
-                return reply.code(status).send({ ok: false, reason: result.reason });
+                const { status, message } = mapAuthFail(result.reason);
+                return reply.code(status).send({ ok: false, reason: result.reason, message });
             }
 
             return reply.send(result);
@@ -129,7 +145,11 @@ export async function authRoutes(app: FastifyInstance) {
         async (request: any, reply) => {
             const body = AuthChangePasswordBody.parse(request.body);
             const userId = request.user?.sub;
-            if (!userId) return reply.code(401).send({ ok: false, reason: AuthError.InvalidToken });
+
+            if (!userId) {
+                const { status, message } = mapAuthFail(AuthError.InvalidToken);
+                return reply.code(status).send({ ok: false, reason: AuthError.InvalidToken, message });
+            }
 
             const result = await changePasswordUseCase(
                 { userRepo: deps.userRepo, passwordHasher: deps.passwordHasher },
@@ -137,13 +157,8 @@ export async function authRoutes(app: FastifyInstance) {
             );
 
             if (!result.ok) {
-                const status =
-                    result.reason === AuthError.WrongPassword ? 400 :
-                        result.reason === AuthError.UserInactive ? 403 :
-                            result.reason === AuthError.UserNotFound ? 404 :
-                                400;
-
-                return reply.code(status).send({ ok: false, reason: result.reason });
+                const { status, message } = mapAuthFail(result.reason);
+                return reply.code(status).send({ ok: false, reason: result.reason, message });
             }
 
             return reply.send(result);

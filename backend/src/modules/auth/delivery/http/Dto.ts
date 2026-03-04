@@ -1,8 +1,10 @@
 import { z } from "../../../../shared/zod/Zod.js";
+import { authErrorReasons } from "../../domain/AuthErrorReasons.js";
+
 
 /** Request */
 export const AuthLoginBody = z.object({
-    email: z.string().email().openapi({ example: "2251172560@e.tlu.edu.vn" }),
+    email: z.string().min(1).openapi({ example: "2251172560@e.tlu.edu.vn" }),
     password: z.string().min(1).openapi({ example: "Admin123!" }),
 });
 
@@ -27,7 +29,8 @@ export const AuthLoginOkResponse = z.object({
 
 export const AuthFailResponse = z.object({
     ok: z.literal(false),
-    reason: z.string(),
+    reason: z.enum(authErrorReasons),
+    message: z.string(),
 });
 
 export const AuthIntrospectOkResponse = z.object({

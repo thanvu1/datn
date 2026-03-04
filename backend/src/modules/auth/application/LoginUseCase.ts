@@ -1,7 +1,7 @@
 import type { Result } from "../../../shared/Result.js";
 import { AuthError, type AuthErrorReason } from "../domain/AuthErrors.js";
 import type { PasswordHasher, TokenService, UserRepo } from "../domain/AuthPorts.js";
-import { isAllowedEmail, normalizeEmail } from "../domain/EmailPolicy.js";
+import { isAllowedEmail, normalizeEmail, isEmailFormatValid } from "../domain/EmailPolicy.js";
 
 export type LoginDeps = {
     userRepo: UserRepo;
@@ -27,8 +27,12 @@ export async function loginUseCase(
 ): Promise<Result<LoginOk, AuthErrorReason>> {
     const email = normalizeEmail(cmd.email);
 
+    if (!isEmailFormatValid(email, deps.adminEmail)) {
+        return { ok: false, reason: AuthError.InvalidEmailFormat };
+    }
+
     if (!isAllowedEmail(email, deps.adminEmail)) {
-        return { ok: false, reason: AuthError.ValidationError };
+        return { ok: false, reason: AuthError.EmailNotAllowed };
     }
 
     const user = await deps.userRepo.findByEmail(email);
@@ -36,7 +40,7 @@ export async function loginUseCase(
     if (!user.isActive) return { ok: false, reason: AuthError.UserInactive };
 
     const ok = await deps.passwordHasher.compare(cmd.password, user.passwordHash);
-    if (!ok) return { ok: false, reason: AuthError.InvalidCredentials };
+    if (!ok) return { ok: false, reason: AuthError.WrongPassword };
 
     const accessToken = await deps.tokenService.signAccessToken({
         sub: user.id,

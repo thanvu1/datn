@@ -11,6 +11,7 @@ import {
     AuthChangePasswordOkResponse,
     AuthLogoutOkResponse,
 } from "./Dto.js";
+import { authErrorReasons } from "../../domain/AuthErrorReasons.js";
 
 const ajvSchemas = [
     // ===== request =====
@@ -68,9 +69,10 @@ const ajvSchemas = [
         additionalProperties: false,
         properties: {
             ok: { const: false },
-            reason: { type: "string" },
+            reason: { enum: authErrorReasons },
+            message: { type: "string" },
         },
-        required: ["ok", "reason"],
+        required: ["ok", "reason", "message"],
     },
     {
         $id: "AuthIntrospectOkResponse",
