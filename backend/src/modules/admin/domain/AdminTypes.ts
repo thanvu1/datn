@@ -1,5 +1,46 @@
 import type { UserRole } from "../../../shared/auth/UserRole.js";
 
+/**
+ * =========================
+ * View Models
+ * =========================
+ */
+export type UserView = {
+    id: string;
+    email: string;
+    role: UserRole;
+    isActive: boolean;
+    mustChangePassword: boolean;
+    createdAt: Date;
+
+    student?: {
+        studentCode: string | null;
+        fullName: string | null;
+        className: string | null;
+        faculty: string | null;
+        phone: string | null;
+    } | null;
+
+    teacher?: {
+        teacherCode: string | null;
+        fullName: string | null;
+        department: string | null;
+        phone: string | null;
+    } | null;
+};
+
+export type Paged<T> = {
+    items: T[];
+    page: number;
+    pageSize: number;
+    total: number;
+};
+
+/**
+ * =========================
+ * Commands / Inputs
+ * =========================
+ */
 export type StudentProfileInput = {
     studentCode?: string | null;
     fullName?: string | null;
@@ -23,8 +64,8 @@ export type CreateUserInput = {
     isActive?: boolean;
     mustChangePassword?: boolean;
 
-    student?: StudentProfileInput;
-    teacher?: TeacherProfileInput;
+    student?: StudentProfileInput | null;
+    teacher?: TeacherProfileInput | null;
 };
 
 export type UpdateUserInput = {
@@ -37,24 +78,27 @@ export type UpdateUserInput = {
     isActive?: boolean;
     mustChangePassword?: boolean;
 
-    student?: StudentProfileInput;
-    teacher?: TeacherProfileInput;
+    student?: StudentProfileInput | null;
+    teacher?: TeacherProfileInput | null;
 };
 
+/**
+ * =========================
+ * List Filters
+ * =========================
+ */
 export type UserListFilter = {
     q?: string;
     role?: UserRole;
     isActive?: boolean;
     mustChangePassword?: boolean;
 
-    // student
     studentCode?: string;
     studentFullName?: string;
     className?: string;
     faculty?: string;
     studentPhone?: string;
 
-    // teacher
     teacherCode?: string;
     teacherFullName?: string;
     department?: string;
@@ -69,3 +113,38 @@ export type PageQuery = {
 };
 
 export type ImportMode = "createOnly" | "upsert";
+
+/**
+ * =========================
+ * Excel Import Domain Types
+ * =========================
+ */
+export type ParsedUserRow = {
+    row: number; // 1-based Excel row number (row 1 = header => data start row 2)
+    email: string | null;
+    role: UserRole | null;
+
+    password?: string | null;
+
+    student?: {
+        studentCode?: string | null;
+        fullName?: string | null;
+        className?: string | null;
+        faculty?: string | null;
+        phone?: string | null;
+    } | null;
+
+    teacher?: {
+        teacherCode?: string | null;
+        fullName?: string | null;
+        department?: string | null;
+        phone?: string | null;
+    } | null;
+};
+
+export type ParsedSpreadsheet = {
+    rows: ParsedUserRow[];
+    warnings: string[];
+    invalidFormat: boolean;
+    isEmpty: boolean;
+};

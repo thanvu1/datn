@@ -1,5 +1,5 @@
 // src/modules/auth/domain/EmailPolicy.ts
-import type { UserRole } from "../../../shared/auth/UserRole.js";
+import type { UserRole } from "./UserRole.js";
 
 export const studentEmailRe = /^\d{8,12}@e\.tlu\.edu\.vn$/i;
 export const teacherEmailRe = /^[a-z][a-z0-9._-]{2,40}@tlu\.edu\.vn$/i;
@@ -23,4 +23,14 @@ export function isEmailFormatValid(email: string, adminEmail: string) {
 export function isAllowedEmail(email: string, adminEmail: string) {
     const normalizedEmail = normalizeEmail(email);
     return inferRoleFromEmail(normalizedEmail) !== null || normalizedEmail === normalizeEmail(adminEmail);
+}
+
+export function isRoleConsistentWithEmail(email: string, role: UserRole, adminEmail: string) {
+    const normalizedEmail = normalizeEmail(email);
+    const normalizedAdmin = normalizeEmail(adminEmail);
+
+    if (normalizedEmail === normalizedAdmin) return role === "admin";
+
+    const inferred = inferRoleFromEmail(normalizedEmail);
+    return inferred !== null && inferred === role;
 }

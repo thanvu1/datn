@@ -6,6 +6,7 @@ export const AuthError = {
     UserInactive: "UserInactive",
     InvalidToken: "InvalidToken",
     WrongPassword: "WrongPassword",
+    WrongRole: "WrongRole"
 } as const;
 
 export type AuthErrorReason = (typeof AuthError)[keyof typeof AuthError];

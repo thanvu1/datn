@@ -5,7 +5,7 @@ export type UserRecord = {
     id: string;
     email: string;
     role: UserRole;
-    passwordHash: string;
+    passwordHash: string | null;
     isActive: boolean;
     mustChangePassword: boolean;
 };

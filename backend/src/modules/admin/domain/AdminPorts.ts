@@ -1,36 +1,12 @@
-import type { UserRole } from "../../../shared/auth/UserRole.js";
-import type { CreateUserInput, UpdateUserInput, UserListFilter, PageQuery } from "./AdminTypes.js";
+import type { CreateUserInput, UpdateUserInput, UserListFilter, PageQuery, UserView, Paged, ParsedSpreadsheet } from "./AdminTypes.js";
 
-export type UserView = {
-    id: string;
-    email: string;
-    role: UserRole;
-    isActive: boolean;
-    mustChangePassword: boolean;
-    createdAt: Date;
+export interface PasswordHasher {
+    hash(password: string): Promise<string>;
+}
 
-    student?: {
-        studentCode: string | null;
-        fullName: string | null;
-        className: string | null;
-        faculty: string | null;
-        phone: string | null;
-    } | null;
-
-    teacher?: {
-        teacherCode: string | null;
-        fullName: string | null;
-        department: string | null;
-        phone: string | null;
-    } | null;
-};
-
-export type Paged<T> = {
-    items: T[];
-    page: number;
-    pageSize: number;
-    total: number;
-};
+export interface SpreadsheetReader {
+    parseUsersFromExcel(fileBytes: Uint8Array): Promise<ParsedSpreadsheet>;
+}
 
 export interface AdminUserRepo {
     createUser(input: CreateUserInput, passwordHash: string | null): Promise<UserView>;
@@ -40,14 +16,4 @@ export interface AdminUserRepo {
     getUserByEmail(email: string): Promise<UserView | null>;
 
     listUsers(filter: UserListFilter, page: PageQuery): Promise<Paged<UserView>>;
-}
-
-export type SpreadsheetRowUser = CreateUserInput;
-
-export interface SpreadsheetReader {
-    parseUsersFromXlsx(buffer: Buffer): Promise<{ rows: SpreadsheetRowUser[]; warnings: string[] }>;
-}
-
-export interface PasswordHasher {
-    hash(password: string): Promise<string>;
 }

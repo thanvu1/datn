@@ -1,7 +1,7 @@
 import type { Result } from "../../../shared/Result.js";
 import { AuthError, type AuthErrorReason } from "../domain/AuthErrors.js";
 import type { PasswordHasher, TokenService, UserRepo } from "../domain/AuthPorts.js";
-import { isAllowedEmail, normalizeEmail, isEmailFormatValid } from "../domain/EmailPolicy.js";
+import { isAllowedEmail, normalizeEmail, isEmailFormatValid } from "../../../shared/auth/EmailPolicy.js";
 
 export type LoginDeps = {
     userRepo: UserRepo;

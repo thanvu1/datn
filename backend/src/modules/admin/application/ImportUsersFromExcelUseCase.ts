@@ -1,69 +1,115 @@
-import bcrypt from "bcryptjs";
-import * as XLSX from "xlsx";
+import type { Result } from "../../../shared/Result.js";
+import { normalizeEmail, isAllowedEmail, isRoleConsistentWithEmail } from "../../../shared/auth/EmailPolicy.js";
+import { AdminError, type AdminErrorReason } from "../domain/AdminErrors.js";
+import type { AdminUserRepo, PasswordHasher, SpreadsheetReader } from "../domain/AdminPorts.js";
+import type { ImportMode, ParsedUserRow } from "../domain/AdminTypes.js";
 
-const studentRe = /^\d{10,12}@e\.tlu\.edu\.vn$/i;
-const teacherRe = /^[a-z][a-z0-9._-]{2,30}@tlu\.edu\.vn$/i;
+export type ImportUsersOk = {
+    created: number;
+    updated: number;
+    skipped: number;
+    warnings: string[];
+    errors: Array<{ row: number; reason: string; message: string }>;
+};
 
-function inferRole(email) {
-    if (studentRe.test(email)) return "student";
-    if (teacherRe.test(email)) return "teacher";
-    return null;
-}
+export type ImportUsersFromExcelDeps = {
+    userRepo: AdminUserRepo;
+    spreadsheetReader: SpreadsheetReader;
+    passwordHasher: PasswordHasher;
+    adminEmail: string;
+};
 
-function randomPassword() {
-    // MVP: password ngẫu nhiên (nên gửi qua kênh khác)
-    return Math.random().toString(36).slice(2, 10) + "A1!";
-}
+export async function importUsersFromExcelUseCase(
+    deps: ImportUsersFromExcelDeps,
+    cmd: { buffer: Buffer; mode: ImportMode }
+): Promise<Result<ImportUsersOk, AdminErrorReason>> {
+    const parsed = await deps.spreadsheetReader.parseUsersFromExcel(new Uint8Array(cmd.buffer));
 
-export async function importUsersFromExcel({ prisma, buffer }) {
-    const wb = XLSX.read(buffer, { type: "buffer" });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
+    if (parsed.invalidFormat) return { ok: false, reason: AdminError.ExcelInvalidFormat };
+    if (parsed.isEmpty || parsed.rows.length === 0) return { ok: false, reason: AdminError.ExcelEmpty };
 
-    // rows: [{email:"...", password:"..."}]
-    const toCreate = [];
-    const errors = [];
+    let created = 0;
+    let updated = 0;
+    let skipped = 0;
 
-    for (let i = 0; i < rows.length; i++) {
-        const rawEmail = String(rows[i].email || "").trim().toLowerCase();
-        if (!rawEmail) {
-            errors.push({ row: i + 2, message: "Missing email" });
+    const errors: ImportUsersOk["errors"] = [];
+
+    for (const row of parsed.rows) {
+        const rowErr = validateRow(row, deps.adminEmail);
+        if (rowErr) {
+            errors.push(rowErr);
+            skipped++;
             continue;
         }
 
-        const role = inferRole(rawEmail);
-        if (!role) {
-            errors.push({ row: i + 2, email: rawEmail, message: "Email must be student (@e.tlu.edu.vn) or teacher (@tlu.edu.vn)" });
-            continue;
+        const email = normalizeEmail(row.email!);
+        const role = row.role!;
+
+        try {
+            const existing = await deps.userRepo.getUserByEmail(email);
+
+            const passwordRaw = row.password && row.password.trim().length > 0 ? row.password : null;
+            const passwordHash = passwordRaw ? await deps.passwordHasher.hash(passwordRaw) : null;
+
+            if (!existing) {
+                await deps.userRepo.createUser(
+                    {
+                        email,
+                        role,
+                        password: null,
+                        isActive: true,
+                        mustChangePassword: true,
+                        student: row.student ?? null,
+                        teacher: row.teacher ?? null,
+                    },
+                    passwordHash
+                );
+                created++;
+            } else if (cmd.mode === "upsert") {
+                await deps.userRepo.updateUser(
+                    {
+                        id: existing.id,
+                        email,
+                        role,
+                        student: row.student ?? null,
+                        teacher: row.teacher ?? null,
+                    },
+                    passwordHash
+                );
+                updated++;
+            } else {
+                skipped++;
+            }
+        } catch (e: any) {
+            errors.push({
+                row: row.row,
+                reason: AdminError.ExcelRowInvalid,
+                message: e?.message ?? "Không import được dòng này do dữ liệu không hợp lệ.",
+            });
+            skipped++;
         }
-
-        const pwd = String(rows[i].password || "").trim() || randomPassword();
-        const passwordHash = await bcrypt.hash(pwd, 10);
-
-        toCreate.push({
-            email: rawEmail,
-            role,
-            passwordHash,
-            isActive: true,
-            mustChangePassword: true,
-            // (tuỳ bạn) trả pwd về cho admin để phát cho sinh viên/giảng viên
-            _plainPassword: pwd,
-        });
     }
 
-    // CreateMany không trả plain password; bạn có thể lưu danh sách pwd vào file export riêng cho admin
-    const createData = toCreate.map(({ _plainPassword, ...u }) => u);
+    return { ok: true, data: { created, updated, skipped, warnings: parsed.warnings, errors } };
+}
 
-    // tạo hàng loạt, bỏ trùng email
-    const result = await prisma.user.createMany({
-        data: createData,
-        skipDuplicates: true,
-    });
+function validateRow(row: ParsedUserRow, adminEmail: string): { row: number; reason: string; message: string } | null {
+    if (!row.email || row.email.trim().length === 0) {
+        return { row: row.row, reason: AdminError.ExcelRowInvalid, message: "Thiếu email." };
+    }
+    if (!row.role) {
+        return { row: row.row, reason: AdminError.ExcelRowInvalid, message: "Thiếu hoặc sai role." };
+    }
 
-    return {
-        inserted: result.count,
-        errors,
-        // WARNING: chỉ dùng khi bạn muốn trả password tạm cho admin
-        credentials: toCreate.map((u) => ({ email: u.email, password: u._plainPassword })),
-    };
+    const email = normalizeEmail(row.email);
+
+    if (!isAllowedEmail(email, adminEmail)) {
+        return { row: row.row, reason: AdminError.EmailNotAllowed, message: "Email không thuộc phạm vi cho phép." };
+    }
+
+    if (!isRoleConsistentWithEmail(email, row.role, adminEmail)) {
+        return { row: row.row, reason: AdminError.RoleMismatch, message: "Role không khớp email." };
+    }
+
+    return null;
 }
