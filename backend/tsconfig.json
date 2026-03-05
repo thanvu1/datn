@@ -15,10 +15,17 @@
         "skipLibCheck": true,
         "allowJs": true,
         "checkJs": true,
+        "declaration": true,
         "types": [
             "node"
         ],
-        "resolveJsonModule": true
+        "resolveJsonModule": true,
+        "baseUrl": ".",
+        "paths": {
+            "@/*": [
+                "src/*"
+            ]
+        }
     },
     "include": [
         "src/**/*"

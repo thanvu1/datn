@@ -20,6 +20,13 @@ declare module "fastify" {
         auth: {
             verify: (req: FastifyRequest, reply: any) => Promise<void>;
         };
+        container: {
+            admin: {
+                userRepo: AdminUserRepo;
+                spreadsheetReader: SpreadsheetReader;
+                passwordHasher: PasswordHasher;
+            };
+        };
     }
 
     interface FastifyRequest {

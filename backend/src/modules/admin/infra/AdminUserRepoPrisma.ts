@@ -1,7 +1,6 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
-
-import type { AdminUserRepo } from "../domain/AdminPorts.js";
 import { toPrismaRole, fromPrismaRole } from "../../../shared/infra/prisma/RoleMap.js";
+import type { AdminUserRepo } from "../domain/AdminPorts.js";
 import type {
   CreateUserInput,
   UpdateUserInput,
@@ -10,7 +9,6 @@ import type {
   Paged,
   UserView,
 } from "../domain/AdminTypes.js";
-import type { UserRole } from "../../../shared/auth/UserRole.js";
 
 const includeProfiles = {
   student: true,
@@ -25,18 +23,12 @@ export class AdminUserRepoPrisma implements AdminUserRepo {
   constructor(private readonly prisma: PrismaClient) { }
 
   async getUserById(id: string): Promise<UserView | null> {
-    const u = await this.prisma.user.findUnique({
-      where: { id },
-      include: includeProfiles,
-    });
+    const u = await this.prisma.user.findUnique({ where: { id }, include: includeProfiles });
     return u ? this.toUserView(u) : null;
   }
 
   async getUserByEmail(email: string): Promise<UserView | null> {
-    const u = await this.prisma.user.findUnique({
-      where: { email },
-      include: includeProfiles,
-    });
+    const u = await this.prisma.user.findUnique({ where: { email }, include: includeProfiles });
     return u ? this.toUserView(u) : null;
   }
 
@@ -53,18 +45,14 @@ export class AdminUserRepoPrisma implements AdminUserRepo {
       },
       include: includeProfiles,
     });
-
     return this.toUserView(u);
   }
 
   async updateUser(input: UpdateUserInput, passwordHash: string | null): Promise<UserView> {
-    const existing = await this.prisma.user.findUnique({
-      where: { id: input.id },
-      include: includeProfiles,
-    });
+    const existing = await this.prisma.user.findUnique({ where: { id: input.id }, include: includeProfiles });
     if (!existing) throw new Error("UserNotFound");
 
-    const nextRole: UserRole = input.role ?? fromPrismaRole[existing.role];
+    const nextRole = input.role ?? fromPrismaRole[existing.role];
 
     const shouldDeleteStudent = nextRole !== "student" && existing.student;
     const shouldDeleteTeacher = nextRole !== "teacher" && existing.teacher;
@@ -94,6 +82,15 @@ export class AdminUserRepoPrisma implements AdminUserRepo {
     return this.toUserView(u);
   }
 
+  async setUserActive(userId: string, isActive: boolean): Promise<UserView> {
+    const u = await this.prisma.user.update({
+      where: { id: userId },
+      data: { isActive },
+      include: includeProfiles,
+    });
+    return this.toUserView(u);
+  }
+
   async listUsers(filter: UserListFilter, page: PageQuery): Promise<Paged<UserView>> {
     const and: Prisma.UserWhereInput[] = [];
 
@@ -101,6 +98,7 @@ export class AdminUserRepoPrisma implements AdminUserRepo {
     if (typeof filter.isActive === "boolean") and.push({ isActive: filter.isActive });
     if (typeof filter.mustChangePassword === "boolean") and.push({ mustChangePassword: filter.mustChangePassword });
 
+    // search theo email hoặc fullName (student/teacher)
     if (filter.q && filter.q.trim()) {
       const q = filter.q.trim();
       and.push({
@@ -112,12 +110,14 @@ export class AdminUserRepoPrisma implements AdminUserRepo {
       });
     }
 
+    // filter student (có thể kết hợp nhiều thuộc tính)
     if (filter.studentCode) and.push({ student: { studentCode: { contains: filter.studentCode, mode: "insensitive" } } });
     if (filter.studentFullName) and.push({ student: { fullName: { contains: filter.studentFullName, mode: "insensitive" } } });
     if (filter.className) and.push({ student: { className: { contains: filter.className, mode: "insensitive" } } });
     if (filter.faculty) and.push({ student: { faculty: { contains: filter.faculty, mode: "insensitive" } } });
     if (filter.studentPhone) and.push({ student: { phone: { contains: filter.studentPhone, mode: "insensitive" } } });
 
+    // filter teacher
     if (filter.teacherCode) and.push({ teacher: { teacherCode: { contains: filter.teacherCode, mode: "insensitive" } } });
     if (filter.teacherFullName) and.push({ teacher: { fullName: { contains: filter.teacherFullName, mode: "insensitive" } } });
     if (filter.department) and.push({ teacher: { department: { contains: filter.department, mode: "insensitive" } } });
@@ -131,27 +131,14 @@ export class AdminUserRepoPrisma implements AdminUserRepo {
     const take = pageSizeSafe;
 
     const orderBy: Prisma.UserOrderByWithRelationInput =
-      page.sortBy === "email"
-        ? { email: page.sortDir ?? "asc" }
-        : { createdAt: page.sortDir ?? "desc" };
+      page.sortBy === "email" ? { email: page.sortDir ?? "asc" } : { createdAt: page.sortDir ?? "desc" };
 
     const [total, items] = await this.prisma.$transaction([
       this.prisma.user.count({ where }),
-      this.prisma.user.findMany({
-        where,
-        include: includeProfiles,
-        skip,
-        take,
-        orderBy,
-      }),
+      this.prisma.user.findMany({ where, include: includeProfiles, skip, take, orderBy }),
     ]);
 
-    return {
-      items: items.map((u) => this.toUserView(u)),
-      total,
-      page: pageSafe,
-      pageSize: pageSizeSafe,
-    };
+    return { items: items.map((u) => this.toUserView(u)), total, page: pageSafe, pageSize: pageSizeSafe };
   }
 
   private toUserView(u: PrismaUserWithProfiles): UserView {

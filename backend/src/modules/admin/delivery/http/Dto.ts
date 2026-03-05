@@ -1,86 +1,122 @@
 import { z } from "zod";
-import type { UserRole } from "../../../../shared/auth/UserRole.js";
+import { userRoles } from "../../../../shared/auth/UserRole.js";
 
-/** runtime tuple cho z.enum (đáp ứng Zod) */
-export const userRoles = ["admin", "student", "teacher"] as const;
-/** compile-time check để tránh lệch với type UserRole */
-type _CheckUserRole = (typeof userRoles)[number] extends UserRole ? true : never;
+export const UserRoleZ = z.enum(userRoles);
 
-const boolFromQuery = z
-    .union([z.string(), z.boolean()])
-    .transform((v) => (typeof v === "boolean" ? v : ["1", "true", "yes", "y"].includes(v.toLowerCase())))
-    .optional();
+/**
+ * Base fields dùng chung
+ */
+const BaseUserFieldsZ = z.object({
+    email: z.string().min(1),
+    password: z.string().optional().nullable(),
+    isActive: z.boolean().optional(),
+    mustChangePassword: z.boolean().optional(),
+});
 
-const intFromQuery = (defaultValue: number) =>
+const StudentProfileZ = z.object({
+    studentCode: z.string().optional().nullable(),
+    fullName: z.string().optional().nullable(),
+    className: z.string().optional().nullable(),
+    faculty: z.string().optional().nullable(),
+    phone: z.string().optional().nullable(),
+});
+
+const TeacherProfileZ = z.object({
+    teacherCode: z.string().optional().nullable(),
+    fullName: z.string().optional().nullable(),
+    department: z.string().optional().nullable(),
+    phone: z.string().optional().nullable(),
+});
+
+/**
+ * ===== CREATE: discriminatedUnion theo role =====
+ */
+const CreateStudentBodyZ = BaseUserFieldsZ.extend({
+    role: z.literal("student"),
+    student: StudentProfileZ.optional().nullable(),
+    teacher: z.never().optional(),
+});
+
+const CreateTeacherBodyZ = BaseUserFieldsZ.extend({
+    role: z.literal("teacher"),
+    teacher: TeacherProfileZ.optional().nullable(),
+    student: z.never().optional(),
+});
+
+const CreateAdminBodyZ = BaseUserFieldsZ.extend({
+    role: z.literal("admin"),
+    student: z.never().optional(),
+    teacher: z.never().optional(),
+});
+
+export const CreateUserBodyZ = z.discriminatedUnion("role", [
+    CreateStudentBodyZ,
+    CreateTeacherBodyZ,
+    CreateAdminBodyZ,
+]);
+
+/**
+ * ===== UPDATE: 1 endpoint nhưng payload bị "chặn" đúng theo profile gửi lên =====
+ * - Nếu payload có student => (role optional nhưng nếu có phải = student), cấm teacher
+ * - Nếu payload có teacher => (role optional nhưng nếu có phải = teacher), cấm student
+ * - Nếu payload không có profile => role optional, nhưng nếu role=admin thì cấm profile (đã thỏa)
+ */
+export const UpdateUserBodyZ = z.union([
     z
-        .union([z.string(), z.number()])
-        .transform((v) => {
-            const n = typeof v === "number" ? v : Number(v);
-            return Number.isFinite(n) ? n : defaultValue;
-        })
-        .optional();
-
-export const createUserBodySchema = z.object({
-    email: z.string().email(),
-    role: z.enum(userRoles),
-    password: z.string().min(6).optional().nullable(),
-    isActive: z.boolean().optional(),
-    mustChangePassword: z.boolean().optional(),
-
-    student: z
         .object({
-            studentCode: z.string().optional().nullable(),
-            fullName: z.string().optional().nullable(),
-            className: z.string().optional().nullable(),
-            faculty: z.string().optional().nullable(),
-            phone: z.string().optional().nullable(),
-        })
-        .optional(),
+            email: z.string().min(1).optional(),
+            password: z.string().optional().nullable(),
+            isActive: z.boolean().optional(),
+            mustChangePassword: z.boolean().optional(),
 
-    teacher: z
-        .object({
-            teacherCode: z.string().optional().nullable(),
-            fullName: z.string().optional().nullable(),
-            department: z.string().optional().nullable(),
-            phone: z.string().optional().nullable(),
+            role: z.literal("student").optional(),
+            student: StudentProfileZ.optional().nullable(),
+            teacher: z.never().optional(),
         })
-        .optional(),
+        .strict(),
+
+    z
+        .object({
+            email: z.string().min(1).optional(),
+            password: z.string().optional().nullable(),
+            isActive: z.boolean().optional(),
+            mustChangePassword: z.boolean().optional(),
+
+            role: z.literal("teacher").optional(),
+            teacher: TeacherProfileZ.optional().nullable(),
+            student: z.never().optional(),
+        })
+        .strict(),
+
+    z
+        .object({
+            email: z.string().min(1).optional(),
+            password: z.string().optional().nullable(),
+            isActive: z.boolean().optional(),
+            mustChangePassword: z.boolean().optional(),
+
+            role: z.literal("admin").optional(),
+            student: z.never().optional(),
+            teacher: z.never().optional(),
+        })
+        .strict(),
+]);
+
+/**
+ * ===== Paging + filters =====
+ */
+export const PageQueryZ = z.object({
+    page: z.coerce.number().int().min(1).default(1),
+    pageSize: z.coerce.number().int().min(1).max(200).default(20),
+    sortBy: z.enum(["createdAt", "email"]).optional(),
+    sortDir: z.enum(["asc", "desc"]).optional(),
 });
 
-export const updateUserParamsSchema = z.object({ id: z.string().min(1) });
-
-export const updateUserBodySchema = z.object({
-    email: z.string().email().optional(),
-    role: z.enum(userRoles).optional(),
-    password: z.string().min(6).optional().nullable(),
-    isActive: z.boolean().optional(),
-    mustChangePassword: z.boolean().optional(),
-
-    student: z
-        .object({
-            studentCode: z.string().optional().nullable(),
-            fullName: z.string().optional().nullable(),
-            className: z.string().optional().nullable(),
-            faculty: z.string().optional().nullable(),
-            phone: z.string().optional().nullable(),
-        })
-        .optional(),
-
-    teacher: z
-        .object({
-            teacherCode: z.string().optional().nullable(),
-            fullName: z.string().optional().nullable(),
-            department: z.string().optional().nullable(),
-            phone: z.string().optional().nullable(),
-        })
-        .optional(),
-});
-
-export const listUsersQuerySchema = z.object({
+export const ListUsersQueryZ = PageQueryZ.extend({
     q: z.string().optional(),
-    role: z.enum(userRoles).optional(),
-    isActive: boolFromQuery,
-    mustChangePassword: boolFromQuery,
+    role: UserRoleZ.optional(),
+    isActive: z.coerce.boolean().optional(),
+    mustChangePassword: z.coerce.boolean().optional(),
 
     studentCode: z.string().optional(),
     studentFullName: z.string().optional(),
@@ -92,14 +128,31 @@ export const listUsersQuerySchema = z.object({
     teacherFullName: z.string().optional(),
     department: z.string().optional(),
     teacherPhone: z.string().optional(),
-
-    page: intFromQuery(1).transform((v) => v ?? 1),
-    pageSize: intFromQuery(20).transform((v) => v ?? 20),
-
-    sortBy: z.enum(["createdAt", "email"]).optional(),
-    sortDir: z.enum(["asc", "desc"]).optional(),
 });
 
-export const importUsersQuerySchema = z.object({
-    mode: z.enum(["createOnly", "upsert"]).optional().transform((v) => v ?? "createOnly"),
+export const ListStudentsQueryZ = PageQueryZ.extend({
+    q: z.string().optional(),
+    isActive: z.coerce.boolean().optional(),
+    mustChangePassword: z.coerce.boolean().optional(),
+
+    studentCode: z.string().optional(),
+    studentFullName: z.string().optional(),
+    className: z.string().optional(),
+    faculty: z.string().optional(),
+    studentPhone: z.string().optional(),
+});
+
+export const ListTeachersQueryZ = PageQueryZ.extend({
+    q: z.string().optional(),
+    isActive: z.coerce.boolean().optional(),
+    mustChangePassword: z.coerce.boolean().optional(),
+
+    teacherCode: z.string().optional(),
+    teacherFullName: z.string().optional(),
+    department: z.string().optional(),
+    teacherPhone: z.string().optional(),
+});
+
+export const ImportQueryZ = z.object({
+    mode: z.enum(["createOnly", "upsert"]).default("createOnly"),
 });
